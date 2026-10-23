@@ -1,1 +1,5 @@
-{"name":"quiet-life-standalone","version":"1.0.0","private":true,"type":"module","scripts":{"test":"node deployment-tests.mjs"},"engines":{"node":">=22.13"}}
+{
+  "name": "quiet-life-local",
+  "private": true,
+  "type": "module"
+}
