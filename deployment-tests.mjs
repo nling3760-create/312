@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync} from 'node:fs';
+import worker from './worker.js';
+let sqlite=new DatabaseSync(':memory:');sqlite.exec(readFileSync('schema.sql','utf8'));
+const env={DB:{prepare(sql){return {bind(...v){let stmt=sqlite.prepare(sql);return {async first(){return stmt.get(...v)||null},async run(){let r=stmt.run(...v);return {meta:{changes:Number(r.changes)}}}}}}}}};
+const proof='a'.repeat(64),nickname='部署测试';
+const base={version:1,userProfile:{startDate:'2026-04-22',startWeight:144},settings:{expenseCategories:['餐饮'],incomeCategories:['生活费']},weightRecords:[],mealRecords:[],exerciseRecords:[],sleepRecords:[],measurementRecords:[],dailyNotes:[],transactions:[],budgets:[]};
+async function call(action,body={},extraHeaders={}){let r=await worker.fetch(new Request('https://life.example/api/cloud',{method:'POST',headers:{'Content-Type':'application/json','CF-Connecting-IP':'192.0.2.1',...extraHeaders},body:JSON.stringify({action,nickname,proof,...body})}),env);return {status:r.status,data:await r.json()}}
+assert.equal((await worker.fetch(new Request('https://life.example/'),env)).status,200);
+let html=await (await worker.fetch(new Request('https://life.example/'),env)).text();assert.ok(html.includes('app.js'));
+let app=await (await worker.fetch(new Request('https://life.example/app.js'),env)).text();assert.ok(!app.includes('原站需登录同一个 ChatGPT'));assert.ok(!app.includes('AI 分析今日'));
+assert.equal((await call('open')).data.exists,false);
+assert.equal((await call('create',{data:base})).status,200);
+assert.equal((await call('open',{proof:'b'.repeat(64)})).status,403);
+assert.equal((await call('open',{nickname:'其他昵称'})).data.exists,false);
+let device1=structuredClone(base);device1.weightRecords.push({id:'w1',date:'2026-10-23',time:'08:00',weight:121.4});assert.equal((await call('push',{data:device1,revision:0})).data.revision,1);
+assert.equal((await call('open')).data.data.weightRecords[0].weight,121.4);
+let device2=structuredClone(base);device2.transactions.push({id:'t1',date:'2026-10-23',time:'12:00',type:'expense',cents:2600});assert.equal((await call('push',{data:device2,revision:0})).status,409);
+assert.equal((await call('photoPut',{photoId:'photo-1',image:'data:image/jpeg;base64,/9j/2Q=='})).status,200);assert.equal((await call('photoGet',{photoId:'photo-1'})).data.image,'data:image/jpeg;base64,/9j/2Q==');assert.equal((await call('photoGet',{photoId:'../secret'})).status,400);
+assert.equal((await call('open',{}, {Origin:'https://attacker.example'})).status,403);
+assert.equal((await call('open',{proof:''})).status,400);
+for(let i=0;i<120;i++)await call('open');assert.equal((await call('open')).status,429);
+console.log('PASS: standalone page/assets, no ChatGPT identity dependency, private nickname data, passphrase rejection, cloud persistence, revision conflicts, D1 photo roundtrip, cross-origin rejection, rate limit');
